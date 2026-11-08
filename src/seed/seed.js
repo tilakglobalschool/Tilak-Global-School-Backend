@@ -1,66 +1,57 @@
-/**
- * Seed script — run once (or re-run safely) to initialise:
- *   1. Super-admin user account (from .env or defaults)
- *   2. Default SiteSettings document
- *   3. Default FeeRow stubs (amounts null — school fills via admin)
- *   4. Default FAQ stubs
- *   5. ApplicationId counter
- *
- * Usage:
- *   node src/seed/seed.js
- *
- * Safe to re-run — upsert patterns, never duplicates.
- *
- * PASSWORD STRATEGY:
- *   On every run, the admin password is ALWAYS reset to the value from .env.
- *   We use findByIdAndUpdate + $set (NOT save()) so no pre-save hook runs.
- *   This guarantees the hash in DB always matches the plain-text in .env —
- *   even if a previous seed run created a double-hashed or stale hash.
- */
+// dotenv MUST be first — loads .env before any other import
 import 'dotenv/config';
+
 import mongoose from 'mongoose';
 import bcrypt   from 'bcryptjs';
 
-import { MONGO_URI } from '../config/env.js';
 import AdminUser, { DEFAULT_PERMISSIONS } from '../models/AdminUser.model.js';
 import SiteSettings from '../models/SiteSettings.model.js';
 import FeeRow, { FEE_CLASS_GROUPS } from '../models/FeeRow.model.js';
 import Faq from '../models/Faq.model.js';
 import Counter from '../models/Counter.model.js';
 
+const MONGO_URI      = process.env.MONGO_URI;
 const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@tilakglobalschool.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ChangeMe123!';
 const ADMIN_NAME     = process.env.ADMIN_NAME     || 'Super Admin';
 
-// ── Admin user ─────────────────────────────────────────────────────────────────
+// ── Validate Atlas URI before touching the DB ─────────────────────────────────
+if (!MONGO_URI) {
+  console.error('❌ MONGO_URI is not set in .env. Cannot run seed.');
+  process.exit(1);
+}
+if (MONGO_URI.includes('127.0.0.1') || MONGO_URI.includes('localhost')) {
+  console.error('❌ Localhost MongoDB is disabled. Use Atlas MONGO_URI.');
+  process.exit(1);
+}
+
+// ── Connect to Atlas ──────────────────────────────────────────────────────────
+async function connectAtlas() {
+  await mongoose.connect(MONGO_URI, {
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS:          45000,
+  });
+  console.log('✅ Connected to MongoDB Atlas!');
+  console.log('🌐 Host:    ', mongoose.connection.host);
+  console.log('🗄️  Database:', mongoose.connection.name);
+  console.log('');
+}
+
+// ── Admin user — delete stale users, create fresh with correct hash ───────────
 async function seedAdminUser() {
-  // Always hash from the plain-text env value
-  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
-
-  const existing = await AdminUser.findOne({ email: ADMIN_EMAIL });
-
-  if (existing) {
-    // ALWAYS reset the password using $set (bypasses ALL pre-save hooks)
-    // This fixes double-hashed passwords from older seed runs
-    await AdminUser.findByIdAndUpdate(
-      existing._id,
-      {
-        $set: {
-          passwordHash,
-          name:        ADMIN_NAME,
-          role:        'super_admin',
-          permissions: DEFAULT_PERMISSIONS.super_admin,
-          isActive:    true,
-        },
-      },
-      { runValidators: false }
-    );
-    console.log(`✅ Admin user password reset: ${ADMIN_EMAIL}`);
-    return;
+  // Delete ANY user with the target email — both .com and .in variants
+  // This wipes double-hashed or stale entries completely
+  const deleted = await AdminUser.deleteMany({
+    email: { $in: ['admin@tilakglobalschool.com', 'admin@tilakglobalschool.in'] },
+  });
+  if (deleted.deletedCount > 0) {
+    console.log(`🗑️  Deleted ${deleted.deletedCount} stale admin user(s)`);
   }
 
-  // User doesn't exist — create fresh
-  const admin = await AdminUser.create({
+  // Hash once — no pre-save hook will re-hash (pre-save only handles permissions)
+  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+
+  await AdminUser.create({
     name:        ADMIN_NAME,
     email:       ADMIN_EMAIL,
     passwordHash,
@@ -69,7 +60,20 @@ async function seedAdminUser() {
     isActive:    true,
   });
 
-  console.log(`✅ Super admin created: ${admin.email}`);
+  // Verify it landed in Atlas
+  const count = await AdminUser.countDocuments({ email: ADMIN_EMAIL });
+  console.log(`✅ Admin user created: ${ADMIN_EMAIL}`);
+  console.log(`🔍 VERIFICATION: Found ${count} admin document(s) in Atlas.`);
+
+  if (count !== 1) {
+    throw new Error(`Expected 1 admin document, got ${count}`);
+  }
+
+  // Sanity-check the hash by comparing right now
+  const saved = await AdminUser.findOne({ email: ADMIN_EMAIL }).select('+passwordHash');
+  const valid = await bcrypt.compare(ADMIN_PASSWORD, saved.passwordHash);
+  console.log(`🔑 Password hash verify: ${valid ? '✅ PASS' : '❌ FAIL — password will not work!'}`);
+  if (!valid) throw new Error('Password hash verification failed after creation');
 }
 
 // ── Site settings singleton ────────────────────────────────────────────────────
@@ -81,10 +85,9 @@ async function seedSiteSettings() {
 // ── Fee row stubs ──────────────────────────────────────────────────────────────
 async function seedFeeRows() {
   for (let i = 0; i < FEE_CLASS_GROUPS.length; i++) {
-    const group = FEE_CLASS_GROUPS[i];
     await FeeRow.findOneAndUpdate(
-      { classGroup: group },
-      { $setOnInsert: { classGroup: group, order: i, isActive: true } },
+      { classGroup: FEE_CLASS_GROUPS[i] },
+      { $setOnInsert: { classGroup: FEE_CLASS_GROUPS[i], order: i, isActive: true } },
       { upsert: true, returnDocument: 'after' }
     );
   }
@@ -98,22 +101,19 @@ async function seedFaqs() {
     console.log(`ℹ️  FAQs already exist (${count}). Skipping.`);
     return;
   }
-
-  const faqs = [
+  await Faq.insertMany([
     { question: 'Which classes are open for admission?',
-      answer:   '[To be confirmed by the school]', order: 1 },
+      answer: '[To be confirmed by the school]', order: 1 },
     { question: 'What documents are required for admission?',
-      answer:   'Birth certificate, previous school report card / Transfer Certificate, Aadhaar card (if applicable), passport-size photographs, parent ID and address proof.', order: 2 },
+      answer: 'Birth certificate, previous school TC, Aadhaar card, passport photos, parent ID and address proof.', order: 2 },
     { question: 'Is there an entrance test or interaction?',
-      answer:   '[To be confirmed by the school]', order: 3 },
+      answer: '[To be confirmed by the school]', order: 3 },
     { question: 'How can I pay the fees?',
-      answer:   '[Payment methods and schedule — to be confirmed by the school]', order: 4 },
+      answer: '[Payment methods — to be confirmed by the school]', order: 4 },
     { question: 'Does the school provide transport?',
-      answer:   '[Transport availability — to be confirmed by the school]', order: 5 },
-  ];
-
-  await Faq.insertMany(faqs);
-  console.log(`✅ ${faqs.length} FAQ stubs seeded.`);
+      answer: '[Transport availability — to be confirmed by the school]', order: 5 },
+  ]);
+  console.log('✅ 5 FAQ stubs seeded.');
 }
 
 // ── Application ID counter ────────────────────────────────────────────────────
@@ -129,24 +129,21 @@ async function seedCounter() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   try {
-    console.log('🔗 Connecting to MongoDB…');
-    await mongoose.connect(MONGO_URI);
-    console.log('✅ Connected.\n');
-
+    await connectAtlas();
     await seedAdminUser();
     await seedSiteSettings();
     await seedFeeRows();
     await seedFaqs();
     await seedCounter();
 
-    console.log('\n🎉 Seed complete.');
+    console.log('\n🎉 Seed complete — all data is in Atlas.');
     console.log(`\nAdmin login:\n  Email:    ${ADMIN_EMAIL}\n  Password: ${ADMIN_PASSWORD}\n`);
   } catch (err) {
-    console.error('❌ Seed failed:', err.message);
+    console.error('\n❌ Seed failed:', err.message);
     process.exit(1);
   } finally {
     await mongoose.disconnect();
-    console.log('🔌 Disconnected.');
+    console.log('🔌 Disconnected from Atlas.');
   }
 }
 
