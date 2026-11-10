@@ -60,7 +60,7 @@ function resolveUploadedFile(file) {
 export const getPublicGallery = asyncHandler(async (req, res) => {
   const q      = req.validatedQuery || req.query;
   const page   = Number(q.page)  || 1;
-  const limit  = Math.min(50, Number(q.limit) || 20);
+  const limit  = Math.min(200, Number(q.limit) || 20);
   const skip   = (page - 1) * limit;
 
   const filter = { status: 'published' };

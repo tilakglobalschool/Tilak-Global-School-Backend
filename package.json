@@ -10,7 +10,9 @@
     "seed": "node src/seed/seed.js",
     "seed:content": "node src/seed/contentSeed.js",
     "seed:all": "node src/seed/seed.js && node src/seed/contentSeed.js",
-    "seed:phase5": "node src/seed/phase5Seed.js"
+    "seed:phase5": "node src/seed/phase5Seed.js",
+    "seed:client": "node src/seed/seedClientContent.js",
+    "seed:client:dry": "node src/seed/seedClientContent.js --dry-run"
   },
   "keywords": [],
   "author": "Code Craft IT Solution",
