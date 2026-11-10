@@ -56,13 +56,22 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-const ALLOWED_ORIGINS = [
+// Base allowed origins — always included
+const BASE_ORIGINS = [
   'https://tilakglobalschool.com',
   'https://www.tilakglobalschool.com',
   'https://admin-portal.tilakglobalschool.com',
   'http://localhost:3000',
   'http://localhost:3001',
 ];
+
+// Merge env CLIENT_URL list (comma-separated) with base origins
+const ENV_ORIGINS  = (process.env.CLIENT_URL || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+const ALLOWED_ORIGINS = [...new Set([...BASE_ORIGINS, ...ENV_ORIGINS])];
 
 app.use(cors({
   origin: function (origin, callback) {

@@ -59,6 +59,8 @@ adminGalleryRouter.get('/:id',
 
 adminGalleryRouter.put('/:id',
   requirePermission('gallery', 'edit'),
+  uploadImage,
+  handleUploadError,
   validate(updateGallerySchema),
   updateGallery
 );

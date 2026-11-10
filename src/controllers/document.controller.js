@@ -6,14 +6,15 @@
  *
  * Admin:
  *   GET    /api/admin/documents          - all docs with filters
- *   POST   /api/admin/documents          - upload file + create record
+ *   POST   /api/admin/documents          - upload file (Cloudinary) + create record
  *   GET    /api/admin/documents/:id      - single document
  *   PUT    /api/admin/documents/:id      - update metadata (+ optional file replace)
- *   DELETE /api/admin/documents/:id      - delete record + file
+ *   DELETE /api/admin/documents/:id      - delete record + Cloudinary asset
  */
 import path from 'path';
 import fs   from 'fs';
 import Document, { DOCUMENT_FILE_TYPES } from '../models/Document.model.js';
+import cloudinary        from '../config/cloudinary.js';
 import { asyncHandler }  from '../utils/asyncHandler.js';
 import { AppError }      from '../utils/AppError.js';
 import { logActivity }   from '../utils/activityLogger.js';
@@ -29,6 +30,17 @@ const MIME_TO_FILETYPE = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':       'XLSX',
 };
 
+// ── Helper: delete from Cloudinary (non-blocking) ────────────────────────────
+async function deleteCloudinaryAsset(publicId, resourceType = 'raw') {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch (err) {
+    console.warn('[Document] Cloudinary delete failed for:', publicId, err?.message);
+  }
+}
+
+// ── Helper: delete legacy local file (backward compat) ───────────────────────
 function deleteLocalFile(relativeUrl) {
   if (!relativeUrl || !relativeUrl.startsWith('/uploads/')) return;
   try {
@@ -36,8 +48,24 @@ function deleteLocalFile(relativeUrl) {
     const absPath  = path.join(UPLOAD_DIR, filename);
     if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
   } catch {
-    console.warn('[Document] Could not delete file:', relativeUrl);
+    console.warn('[Document] Could not delete local file:', relativeUrl);
   }
+}
+
+// ── Helper: resolve file info from multer-storage-cloudinary ─────────────────
+// For documents (resource_type: raw), Cloudinary returns:
+//   req.file.path     = secure_url
+//   req.file.filename = public_id
+function resolveUploadedFile(file, mimetype) {
+  return {
+    fileUrl:                file.path,     // Cloudinary secure_url
+    cloudinaryPublicId:     file.filename, // Cloudinary public_id
+    cloudinaryResourceType: 'raw',
+    fileType: MIME_TO_FILETYPE[mimetype]
+      || path.extname(file.originalname || '').replace('.', '').toUpperCase()
+      || 'PDF',
+    fileSizeKb: Math.round((file.size || 0) / 1024),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,19 +138,16 @@ export const uploadDocument = asyncHandler(async (req, res) => {
 
   const { title, category, page, issueDate, status } = req.body;
 
-  // Infer fileType from mime type
-  const fileType = MIME_TO_FILETYPE[req.file.mimetype]
-    || path.extname(req.file.originalname).replace('.', '').toUpperCase()
-    || 'PDF';
-
-  const fileSizeKb = Math.round(req.file.size / 1024);
-  const fileUrl    = `/uploads/documents/${req.file.filename}`;
+  const { fileUrl, cloudinaryPublicId, cloudinaryResourceType, fileType, fileSizeKb }
+    = resolveUploadedFile(req.file, req.file.mimetype);
 
   const document = await Document.create({
     title,
     category,
     page,
     fileUrl,
+    cloudinaryPublicId,
+    cloudinaryResourceType,
     fileType,
     fileSizeKb,
     issueDate:  issueDate ? new Date(issueDate) : null,
@@ -136,7 +161,7 @@ export const uploadDocument = asyncHandler(async (req, res) => {
     module:      'documents',
     targetId:    document._id.toString(),
     targetLabel: document.title,
-    detail:      `Document uploaded: "${title}" (${fileType}, ${fileSizeKb}KB)`,
+    detail:      `Document uploaded to Cloudinary: "${title}" (${fileType}, ${fileSizeKb}KB)`,
   });
 
   return sendSuccess(res, {
@@ -173,12 +198,19 @@ export const updateDocument = asyncHandler(async (req, res) => {
     }
   }
 
-  // Optional file replacement
+  // Optional file replacement — delete old Cloudinary/local asset, upload new
   if (req.file) {
-    deleteLocalFile(document.fileUrl);
-    document.fileUrl    = `/uploads/documents/${req.file.filename}`;
-    document.fileType   = MIME_TO_FILETYPE[req.file.mimetype] || 'PDF';
-    document.fileSizeKb = Math.round(req.file.size / 1024);
+    if (document.cloudinaryPublicId) {
+      await deleteCloudinaryAsset(document.cloudinaryPublicId, document.cloudinaryResourceType || 'raw');
+    } else {
+      deleteLocalFile(document.fileUrl);
+    }
+    const resolved = resolveUploadedFile(req.file, req.file.mimetype);
+    document.fileUrl                = resolved.fileUrl;
+    document.cloudinaryPublicId     = resolved.cloudinaryPublicId;
+    document.cloudinaryResourceType = resolved.cloudinaryResourceType;
+    document.fileType               = resolved.fileType;
+    document.fileSizeKb             = resolved.fileSizeKb;
     changes.push('file');
   }
 
@@ -207,7 +239,13 @@ export const deleteDocument = asyncHandler(async (req, res) => {
   const document = await Document.findById(req.params.id);
   if (!document) throw new AppError('Document not found.', 404);
 
-  deleteLocalFile(document.fileUrl);
+  // Delete from Cloudinary or legacy disk
+  if (document.cloudinaryPublicId) {
+    await deleteCloudinaryAsset(document.cloudinaryPublicId, document.cloudinaryResourceType || 'raw');
+  } else {
+    deleteLocalFile(document.fileUrl);
+  }
+
   await Document.findByIdAndDelete(req.params.id);
 
   await logActivity({
@@ -216,7 +254,7 @@ export const deleteDocument = asyncHandler(async (req, res) => {
     module:      'documents',
     targetId:    req.params.id,
     targetLabel: document.title,
-    detail:      `Deleted document: "${document.title}"`,
+    detail:      `Deleted document: "${document.title}" (Cloudinary: ${document.cloudinaryPublicId || 'legacy'})`,
   });
 
   return sendSuccess(res, { message: `Document "${document.title}" deleted.` });

@@ -143,6 +143,22 @@ const siteSettingsSchema = new Schema(
       type: String,
       default: '',
     },
+    // Cloudinary public IDs for media files (for replacement/deletion support)
+    logoPublicId: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    faviconPublicId: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    directorPhotoPublicId: {
+      type: String,
+      default: '',
+      trim: true,
+    },
 
     // ── Social media links ──────────────────────────────────────────────────
     socialLinks: {

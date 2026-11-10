@@ -52,9 +52,17 @@ const newsPostSchema = new Schema(
     },
 
     imageUrl: {
-      type: String,
+      type:    String,
       default: '',
-      trim: true,
+      trim:    true,
+    },
+
+    // ── Cloudinary metadata (populated on new uploads) ───────────────────────
+    // Optional — legacy records without these fields continue to work.
+    cloudinaryPublicId: {
+      type:    String,
+      default: '',
+      trim:    true,
     },
 
     // Only one post should be featured at a time

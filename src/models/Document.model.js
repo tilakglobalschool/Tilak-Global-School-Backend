@@ -50,9 +50,23 @@ const documentSchema = new Schema(
     },
 
     fileUrl: {
-      type: String,
+      type:     String,
       required: [true, 'File URL is required'],
-      trim: true,
+      trim:     true,
+    },
+
+    // ── Cloudinary metadata (populated on new uploads) ───────────────────────
+    // Optional — legacy records without these fields continue to work.
+    cloudinaryPublicId: {
+      type:    String,
+      default: '',
+      trim:    true,
+    },
+
+    cloudinaryResourceType: {
+      type:    String,
+      enum:    ['image', 'video', 'raw', ''],
+      default: 'raw',
     },
 
     fileType: {

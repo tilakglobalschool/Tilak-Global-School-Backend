@@ -1,42 +1,40 @@
 /**
- * Multer upload middleware.
+ * Multer upload middleware — Cloudinary storage
+ *
+ * All files are uploaded directly to Cloudinary (no local disk dependency).
+ * Render's ephemeral filesystem is not used for permanent storage.
  *
  * Security:
- *   - Client-supplied filenames are NEVER used
- *   - Unique crypto-random filenames prevent collisions and path traversal
  *   - File type validated by MIME (not extension)
- *   - Extension re-derived from MIME map — never from client filename
  *   - File size capped by MAX_FILE_SIZE_MB env var
+ *   - Client-supplied filenames are ignored (Cloudinary generates public_id)
+ *   - API secret never reaches the browser
  *
- * Subdirectories are auto-created by server.js on startup.
- * This file only configures multer — it does not create directories.
+ * Cloudinary folder structure:
+ *   tilak-global-school/gallery      — gallery images
+ *   tilak-global-school/news         — news/event featured images
+ *   tilak-global-school/documents    — PDF / Word / Excel downloads
+ *   tilak-global-school/media        — logo, favicon, director photo
+ *   tilak-global-school/videos       — MP4 videos (resource_type: video)
  *
  * Exports:
- *   uploadImage      — gallery images (jpg, png, webp)
- *   uploadDocument   — downloadable files (pdf, doc, docx, xls, xlsx)
- *   uploadMedia      — logo/favicon/director photo (jpg, png, svg, webp)
- *   uploadNewsImage  — news/event featured images (jpg, png, webp)
+ *   uploadImage       — gallery images (jpg, png, webp)
+ *   uploadDocument    — downloadable files (pdf, doc, docx, xls, xlsx)
+ *   uploadMedia       — logo/favicon/director photo (jpg, png, svg, webp)
+ *   uploadNewsImage   — news/event featured images (jpg, png, webp)
+ *   uploadVideo       — video files (mp4)
  *   handleUploadError — error-handler middleware (place after upload)
+ *
+ * Backward compatibility:
+ *   Existing records with /uploads/* URLs continue to work.
+ *   The /uploads static route in app.js still serves legacy files.
  */
-import multer from 'multer';
-import path   from 'path';
-import crypto from 'crypto';
-import { UPLOAD_DIR, MAX_FILE_SIZE_MB } from '../config/env.js';
+import multer                      from 'multer';
+import { CloudinaryStorage }       from 'multer-storage-cloudinary';
+import cloudinary                  from '../config/cloudinary.js';
+import { MAX_FILE_SIZE_MB }        from '../config/env.js';
 
-// MIME type → safe extension (client extension is ignored entirely)
-const MIME_TO_EXT = {
-  'image/jpeg':       '.jpg',
-  'image/png':        '.png',
-  'image/webp':       '.webp',
-  'image/gif':        '.gif',
-  'image/svg+xml':    '.svg',
-  'application/pdf':  '.pdf',
-  'application/msword': '.doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-  'application/vnd.ms-excel': '.xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-};
-
+// ── MIME type allowlists ─────────────────────────────────────────────────────
 const IMAGE_MIMES    = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const DOCUMENT_MIMES = [
   'application/pdf',
@@ -45,24 +43,10 @@ const DOCUMENT_MIMES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ];
-const MEDIA_MIMES = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
+const MEDIA_MIMES  = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
+const VIDEO_MIMES  = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 
-// Disk storage factory — subfolder under UPLOAD_DIR
-function makeStorage(subfolder) {
-  return multer.diskStorage({
-    destination(req, file, cb) {
-      // UPLOAD_DIR/subfolder is guaranteed to exist (created by server.js on boot)
-      cb(null, path.join(UPLOAD_DIR, subfolder));
-    },
-    filename(req, file, cb) {
-      const ext  = MIME_TO_EXT[file.mimetype] || '.bin';
-      const name = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
-      cb(null, name);
-    },
-  });
-}
-
-// MIME filter factory
+// ── MIME filter factory ───────────────────────────────────────────────────────
 function makeFilter(allowedMimes) {
   return function (req, file, cb) {
     if (allowedMimes.includes(file.mimetype)) {
@@ -78,29 +62,67 @@ function makeFilter(allowedMimes) {
 
 const maxSize = (MAX_FILE_SIZE_MB || 10) * 1024 * 1024;
 
+// ── CloudinaryStorage factory ─────────────────────────────────────────────────
+/**
+ * @param {string} folder      — Cloudinary folder path
+ * @param {string} resourceType — 'image' | 'raw' | 'video'
+ * @param {string[]} [formats] — allowed formats (optional, Cloudinary default = all)
+ */
+function makeCloudinaryStorage(folder, resourceType = 'image', formats) {
+  return new CloudinaryStorage({
+    cloudinary,
+    params: (req, file) => {
+      const params = {
+        folder,
+        resource_type: resourceType,
+        // Use original filename base (sanitised) for readability; Cloudinary appends version
+        public_id: undefined, // let Cloudinary auto-generate
+        // For images: preserve quality, strip metadata
+        ...(resourceType === 'image' && {
+          quality:          'auto:good',
+          fetch_format:     'auto',
+          flags:            'strip_profile',
+        }),
+      };
+      if (formats && formats.length) {
+        params.format = formats;
+      }
+      return params;
+    },
+  });
+}
+
+// ── Upload handlers ───────────────────────────────────────────────────────────
+
 export const uploadImage = multer({
-  storage:    makeStorage('gallery'),
+  storage:    makeCloudinaryStorage('tilak-global-school/gallery', 'image'),
+  fileFilter: makeFilter(IMAGE_MIMES),
+  limits:     { fileSize: maxSize },
+}).single('image');
+
+export const uploadNewsImage = multer({
+  storage:    makeCloudinaryStorage('tilak-global-school/news', 'image'),
   fileFilter: makeFilter(IMAGE_MIMES),
   limits:     { fileSize: maxSize },
 }).single('image');
 
 export const uploadDocument = multer({
-  storage:    makeStorage('documents'),
+  storage:    makeCloudinaryStorage('tilak-global-school/documents', 'raw'),
   fileFilter: makeFilter(DOCUMENT_MIMES),
   limits:     { fileSize: maxSize },
 }).single('file');
 
 export const uploadMedia = multer({
-  storage:    makeStorage('media'),
+  storage:    makeCloudinaryStorage('tilak-global-school/media', 'image'),
   fileFilter: makeFilter(MEDIA_MIMES),
   limits:     { fileSize: maxSize },
 }).single('media');
 
-export const uploadNewsImage = multer({
-  storage:    makeStorage('news'),
-  fileFilter: makeFilter(IMAGE_MIMES),
-  limits:     { fileSize: maxSize },
-}).single('image');
+export const uploadVideo = multer({
+  storage:    makeCloudinaryStorage('tilak-global-school/videos', 'video'),
+  fileFilter: makeFilter(VIDEO_MIMES),
+  limits:     { fileSize: 100 * 1024 * 1024 }, // 100 MB for videos
+}).single('video');
 
 /**
  * Error handler — place immediately after any upload middleware.

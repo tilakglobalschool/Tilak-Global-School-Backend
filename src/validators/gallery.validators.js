@@ -4,9 +4,10 @@ import { GALLERY_CATEGORIES } from '../models/GalleryImage.model.js';
 // FormData always sends strings — use z.coerce for numeric fields
 export const createGallerySchema = z.object({
   caption:   z.string().max(120).trim().optional().default(''),
+  altText:   z.string().max(300).trim().optional().default(''),
   category:  z.enum(GALLERY_CATEGORIES, { errorMap: () => ({ message: 'Invalid gallery category' }) }),
   albumName: z.string().max(150).trim().optional().default(''),
-  order:     z.coerce.number().int().optional().default(0),   // coerce "0" → 0
+  order:     z.coerce.number().int().optional().default(0),
   status:    z.enum(['published', 'draft']).optional().default('published'),
 });
 

@@ -43,3 +43,9 @@ export const UPLOAD_DIR       = path.resolve(process.cwd(), process.env.UPLOAD_D
 export const MAX_FILE_SIZE_MB = Number(process.env.MAX_FILE_SIZE_MB) || 10;
 
 export const RENDER_URL = process.env.RENDER_URL || 'https://api.tilakglobalschool.com';
+
+// ── Cloudinary (required for file uploads) ────────────────────────────────────
+// API secret must be set via environment variable — NEVER hardcoded.
+export const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
+export const CLOUDINARY_API_KEY    = process.env.CLOUDINARY_API_KEY    || '';
+export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || '';

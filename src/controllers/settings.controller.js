@@ -7,13 +7,14 @@
  * Admin:
  *   GET  /api/admin/settings        — full settings document
  *   PUT  /api/admin/settings        — update any field(s)
- *   POST /api/admin/settings/logo           — upload logo image
- *   POST /api/admin/settings/favicon        — upload favicon image
- *   POST /api/admin/settings/director-photo — upload director portrait
+ *   POST /api/admin/settings/logo           — upload logo image (Cloudinary)
+ *   POST /api/admin/settings/favicon        — upload favicon image (Cloudinary)
+ *   POST /api/admin/settings/director-photo — upload director portrait (Cloudinary)
  */
 import path         from 'path';
 import fs           from 'fs';
 import SiteSettings from '../models/SiteSettings.model.js';
+import cloudinary   from '../config/cloudinary.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { logActivity }  from '../utils/activityLogger.js';
 import { sendSuccess }  from '../utils/response.js';
@@ -30,6 +31,28 @@ const PUBLIC_FIELDS = [
   'logoUrl', 'faviconUrl', 'socialLinks', 'brandColors',
   'cbseAffiliationNo', 'cbseSchoolCode',
 ];
+
+// ── Helper: delete from Cloudinary (non-blocking) ────────────────────────────
+async function deleteCloudinaryAsset(publicId, resourceType = 'image') {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch (err) {
+    console.warn('[Settings] Cloudinary delete failed for:', publicId, err?.message);
+  }
+}
+
+// ── Helper: delete legacy local file (backward compat) ───────────────────────
+function deleteLocalFile(relativeUrl) {
+  if (!relativeUrl || !relativeUrl.startsWith('/uploads/')) return;
+  try {
+    const relativeFile = relativeUrl.replace(/^\/uploads\//, '');
+    const absPath      = path.join(UPLOAD_DIR, relativeFile);
+    if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+  } catch {
+    console.warn('[Settings] Could not delete local file:', relativeUrl);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC  GET /api/settings
@@ -61,7 +84,11 @@ export const getAdminSettings = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const updateSettings = asyncHandler(async (req, res) => {
   // Strip file URL fields — those only go through dedicated upload endpoints
-  const { logoUrl, faviconUrl, directorPhotoUrl, ...safeUpdates } = req.body;
+  const {
+    logoUrl, faviconUrl, directorPhotoUrl,
+    logoPublicId, faviconPublicId, directorPhotoPublicId,
+    ...safeUpdates
+  } = req.body;
 
   const settings = await SiteSettings.updateSingleton(safeUpdates, req.admin.id);
 
@@ -80,33 +107,33 @@ export const updateSettings = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper — handle media file upload, delete old file, update settings field
+// Helper — handle media file upload via Cloudinary
 // ─────────────────────────────────────────────────────────────────────────────
-async function handleMediaUpload(req, res, fieldName, logDetail) {
+async function handleMediaUpload(req, res, urlField, publicIdField, logDetail) {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded.' });
   }
 
-  const relativePath = `/uploads/media/${req.file.filename}`;
+  // multer-storage-cloudinary: req.file.path = secure_url, req.file.filename = public_id
+  const newUrl      = req.file.path;
+  const newPublicId = req.file.filename;
 
-  // Delete old file if it is stored locally
-  const current = await SiteSettings.getSingleton();
-  const oldUrl  = current[fieldName];
-  if (oldUrl && oldUrl.startsWith('/uploads/')) {
-    try {
-      // BUG FIX: was path.join(UPLOAD_DIR, '..', oldUrl) — wrong path
-      // CORRECT: strip the leading '/uploads/' prefix, then join with UPLOAD_DIR
-      const relativeFile = oldUrl.replace(/^\/uploads\//, '');
-      const absPath      = path.join(UPLOAD_DIR, relativeFile);
-      if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
-    } catch {
-      // Non-blocking — old file deletion failure must not block the response
-      console.warn('[Settings] Could not delete old file:', oldUrl);
-    }
+  // Delete old Cloudinary asset or legacy local file
+  const current   = await SiteSettings.getSingleton();
+  const oldPublicId = current[publicIdField];
+  const oldUrl      = current[urlField];
+
+  if (oldPublicId) {
+    await deleteCloudinaryAsset(oldPublicId, 'image');
+  } else if (oldUrl && oldUrl.startsWith('/uploads/')) {
+    deleteLocalFile(oldUrl);
   }
 
   const settings = await SiteSettings.updateSingleton(
-    { [fieldName]: relativePath },
+    {
+      [urlField]:      newUrl,
+      [publicIdField]: newPublicId,
+    },
     req.admin.id
   );
 
@@ -115,12 +142,12 @@ async function handleMediaUpload(req, res, fieldName, logDetail) {
     action:      'upload',
     module:      'settings',
     targetLabel: 'Site Settings',
-    detail:      `${logDetail}: ${req.file.filename}`,
+    detail:      `${logDetail}: ${newPublicId}`,
   });
 
   return sendSuccess(res, {
     message: `${logDetail} successfully.`,
-    data:    { url: relativePath, settings },
+    data:    { url: newUrl, settings },
   });
 }
 
@@ -128,19 +155,19 @@ async function handleMediaUpload(req, res, fieldName, logDetail) {
 // ADMIN  POST /api/admin/settings/logo
 // ─────────────────────────────────────────────────────────────────────────────
 export const uploadLogo = asyncHandler(async (req, res) => {
-  return handleMediaUpload(req, res, 'logoUrl', 'Logo uploaded');
+  return handleMediaUpload(req, res, 'logoUrl', 'logoPublicId', 'Logo uploaded');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN  POST /api/admin/settings/favicon
 // ─────────────────────────────────────────────────────────────────────────────
 export const uploadFavicon = asyncHandler(async (req, res) => {
-  return handleMediaUpload(req, res, 'faviconUrl', 'Favicon uploaded');
+  return handleMediaUpload(req, res, 'faviconUrl', 'faviconPublicId', 'Favicon uploaded');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN  POST /api/admin/settings/director-photo
 // ─────────────────────────────────────────────────────────────────────────────
 export const uploadDirectorPhoto = asyncHandler(async (req, res) => {
-  return handleMediaUpload(req, res, 'directorPhotoUrl', 'Director photo uploaded');
+  return handleMediaUpload(req, res, 'directorPhotoUrl', 'directorPhotoPublicId', 'Director photo uploaded');
 });

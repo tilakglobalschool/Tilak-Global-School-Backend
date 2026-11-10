@@ -6,33 +6,52 @@
  *
  * Admin:
  *   GET    /api/admin/gallery          - all images with filters
- *   POST   /api/admin/gallery          - upload image + create record
+ *   POST   /api/admin/gallery          - upload image (Cloudinary) + create record
  *   GET    /api/admin/gallery/:id      - single image detail
- *   PUT    /api/admin/gallery/:id      - update caption/category/order/status
- *   DELETE /api/admin/gallery/:id      - delete record + file from disk
+ *   PUT    /api/admin/gallery/:id      - update caption/category/altText/order/status
+ *   DELETE /api/admin/gallery/:id      - delete record + Cloudinary asset
  */
 import path from 'path';
 import fs   from 'fs';
 import GalleryImage        from '../models/GalleryImage.model.js';
+import cloudinary          from '../config/cloudinary.js';
 import { asyncHandler }    from '../utils/asyncHandler.js';
 import { AppError }        from '../utils/AppError.js';
 import { logActivity }     from '../utils/activityLogger.js';
 import { sendSuccess, paginationMeta } from '../utils/response.js';
 import { UPLOAD_DIR }      from '../config/env.js';
 
-// ── Helper: delete local file safely ─────────────────────────────────────────
+// ── Helper: delete asset from Cloudinary (non-blocking) ──────────────────────
+async function deleteCloudinaryAsset(publicId, resourceType = 'image') {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch (err) {
+    console.warn('[Gallery] Cloudinary delete failed for:', publicId, err?.message);
+  }
+}
+
+// ── Helper: delete legacy local file safely (backward compat) ────────────────
 function deleteLocalFile(relativeUrl) {
   if (!relativeUrl || !relativeUrl.startsWith('/uploads/')) return;
   try {
-    // relativeUrl = /uploads/gallery/abc.jpg
-    // UPLOAD_DIR  = /abs/path/to/uploads
-    const filename  = relativeUrl.replace('/uploads/', '');
-    const absPath   = path.join(UPLOAD_DIR, filename);
+    const filename = relativeUrl.replace('/uploads/', '');
+    const absPath  = path.join(UPLOAD_DIR, filename);
     if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
   } catch {
-    // Non-blocking — log to console only
-    console.warn('[Gallery] Could not delete file:', relativeUrl);
+    console.warn('[Gallery] Could not delete local file:', relativeUrl);
   }
+}
+
+// ── Helper: resolve Cloudinary file info from multer-storage-cloudinary ──────
+// multer-storage-cloudinary sets req.file.path  = secure_url
+//                                  req.file.filename = public_id
+function resolveUploadedFile(file) {
+  return {
+    imageUrl:               file.path,          // Cloudinary secure_url
+    cloudinaryPublicId:     file.filename,      // Cloudinary public_id
+    cloudinaryResourceType: 'image',
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +68,7 @@ export const getPublicGallery = asyncHandler(async (req, res) => {
 
   const [images, total] = await Promise.all([
     GalleryImage.find(filter)
-      .select('imageUrl thumbnailUrl caption category albumName order createdAt')
+      .select('imageUrl thumbnailUrl caption altText category albumName order createdAt')
       .sort({ category: 1, order: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -101,12 +120,15 @@ export const uploadGallery = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Image file is required.' });
   }
 
-  const imageUrl = `/uploads/gallery/${req.file.filename}`;
-  const { caption, category, albumName, order, status } = req.body;
+  const { imageUrl, cloudinaryPublicId, cloudinaryResourceType } = resolveUploadedFile(req.file);
+  const { caption, altText, category, albumName, order, status } = req.body;
 
   const image = await GalleryImage.create({
     imageUrl,
+    cloudinaryPublicId,
+    cloudinaryResourceType,
     caption:    caption    ?? '',
+    altText:    altText    ?? '',
     category,
     albumName:  albumName  ?? '',
     order:      Number(order) || 0,
@@ -119,8 +141,8 @@ export const uploadGallery = asyncHandler(async (req, res) => {
     action:      'upload',
     module:      'gallery',
     targetId:    image._id.toString(),
-    targetLabel: `${category} - ${caption || image.imageUrl}`,
-    detail:      `Gallery image uploaded: ${req.file.filename}`,
+    targetLabel: `${category} - ${caption || cloudinaryPublicId}`,
+    detail:      `Gallery image uploaded to Cloudinary: ${cloudinaryPublicId}`,
   });
 
   return sendSuccess(res, {
@@ -147,7 +169,7 @@ export const updateGallery = asyncHandler(async (req, res) => {
   const image = await GalleryImage.findById(req.params.id);
   if (!image) throw new AppError('Gallery image not found.', 404);
 
-  const fields = ['caption', 'category', 'albumName', 'order', 'status'];
+  const fields  = ['caption', 'altText', 'category', 'albumName', 'order', 'status'];
   const changes = [];
 
   for (const f of fields) {
@@ -155,6 +177,20 @@ export const updateGallery = asyncHandler(async (req, res) => {
       image[f] = req.body[f];
       changes.push(f);
     }
+  }
+
+  // Optional image replacement — delete old Cloudinary asset, upload new
+  if (req.file) {
+    if (image.cloudinaryPublicId) {
+      await deleteCloudinaryAsset(image.cloudinaryPublicId, image.cloudinaryResourceType || 'image');
+    } else {
+      deleteLocalFile(image.imageUrl);
+    }
+    const resolved = resolveUploadedFile(req.file);
+    image.imageUrl               = resolved.imageUrl;
+    image.cloudinaryPublicId     = resolved.cloudinaryPublicId;
+    image.cloudinaryResourceType = resolved.cloudinaryResourceType;
+    changes.push('imageUrl');
   }
 
   if (changes.length === 0) {
@@ -182,9 +218,16 @@ export const deleteGallery = asyncHandler(async (req, res) => {
   const image = await GalleryImage.findById(req.params.id);
   if (!image) throw new AppError('Gallery image not found.', 404);
 
-  // Delete file from disk
-  deleteLocalFile(image.imageUrl);
-  if (image.thumbnailUrl) deleteLocalFile(image.thumbnailUrl);
+  // Delete from Cloudinary if public_id available, else clean up legacy disk file
+  if (image.cloudinaryPublicId) {
+    await deleteCloudinaryAsset(image.cloudinaryPublicId, image.cloudinaryResourceType || 'image');
+    if (image.thumbnailUrl && image.thumbnailUrl !== image.imageUrl) {
+      // Thumbnail may be a Cloudinary transformation — typically same public_id, skip
+    }
+  } else {
+    deleteLocalFile(image.imageUrl);
+    if (image.thumbnailUrl) deleteLocalFile(image.thumbnailUrl);
+  }
 
   await GalleryImage.findByIdAndDelete(req.params.id);
 
@@ -194,7 +237,7 @@ export const deleteGallery = asyncHandler(async (req, res) => {
     module:      'gallery',
     targetId:    req.params.id,
     targetLabel: image.caption || image.imageUrl,
-    detail:      `Gallery image deleted: ${image.imageUrl}`,
+    detail:      `Gallery image deleted (Cloudinary: ${image.cloudinaryPublicId || 'legacy'})`,
   });
 
   return sendSuccess(res, { message: 'Gallery image deleted.' });

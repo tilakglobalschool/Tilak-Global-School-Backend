@@ -8,23 +8,35 @@
  *
  * Admin:
  *   GET    /api/admin/news             - all posts (incl. drafts) + filters
- *   POST   /api/admin/news             - create post
+ *   POST   /api/admin/news             - create post (supports image upload via Cloudinary)
  *   GET    /api/admin/news/:id         - single post by id
- *   PUT    /api/admin/news/:id         - update post
+ *   PUT    /api/admin/news/:id         - update post (supports image replacement)
  *   PATCH  /api/admin/news/:id/publish    - publish
  *   PATCH  /api/admin/news/:id/unpublish  - unpublish
  *   PATCH  /api/admin/news/:id/featured   - set as featured (unsets all others)
- *   DELETE /api/admin/news/:id         - delete post
+ *   DELETE /api/admin/news/:id         - delete post + Cloudinary asset
  */
 import path from 'path';
 import fs   from 'fs';
 import NewsPost          from '../models/NewsPost.model.js';
+import cloudinary        from '../config/cloudinary.js';
 import { asyncHandler }  from '../utils/asyncHandler.js';
 import { AppError }      from '../utils/AppError.js';
 import { logActivity }   from '../utils/activityLogger.js';
 import { sendSuccess, sendError, paginationMeta } from '../utils/response.js';
 import { UPLOAD_DIR }    from '../config/env.js';
 
+// ── Helper: delete from Cloudinary (non-blocking) ────────────────────────────
+async function deleteCloudinaryAsset(publicId, resourceType = 'image') {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch (err) {
+    console.warn('[News] Cloudinary delete failed for:', publicId, err?.message);
+  }
+}
+
+// ── Helper: delete legacy local file (backward compat) ───────────────────────
 function deleteLocalFile(relativeUrl) {
   if (!relativeUrl || !relativeUrl.startsWith('/uploads/')) return;
   try {
@@ -32,8 +44,16 @@ function deleteLocalFile(relativeUrl) {
     const absPath  = path.join(UPLOAD_DIR, filename);
     if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
   } catch {
-    console.warn('[News] Could not delete file:', relativeUrl);
+    console.warn('[News] Could not delete local file:', relativeUrl);
   }
+}
+
+// ── Helper: resolve image info from multer-storage-cloudinary ────────────────
+function resolveUploadedFile(file) {
+  return {
+    imageUrl:           file.path,     // Cloudinary secure_url
+    cloudinaryPublicId: file.filename, // Cloudinary public_id
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,23 +147,35 @@ export const listNews = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN  POST /api/admin/news
+// ADMIN  POST /api/admin/news  (supports multipart/form-data for image upload)
 // ─────────────────────────────────────────────────────────────────────────────
 export const createNews = asyncHandler(async (req, res) => {
   const { title, category, date, summary, body, status } = req.body;
 
-  const slug     = await NewsPost.uniqueSlug(title);
-  const imageUrl = req.file ? `/uploads/news/${req.file.filename}` : '';
+  const slug = await NewsPost.uniqueSlug(title);
+
+  // Image from Cloudinary upload (if provided)
+  let imageUrl           = '';
+  let cloudinaryPublicId = '';
+
+  if (req.file) {
+    const resolved     = resolveUploadedFile(req.file);
+    imageUrl           = resolved.imageUrl;
+    cloudinaryPublicId = resolved.cloudinaryPublicId;
+  }
 
   const post = await NewsPost.create({
-    title, slug, category,
-    date:      new Date(date),
-    summary:   summary  ?? '',
-    body:      body     ?? '',
+    title,
+    slug,
+    category,
+    date:              new Date(date),
+    summary:           summary  ?? '',
+    body:              body     ?? '',
     imageUrl,
-    status:    status   ?? 'draft',
-    createdBy: req.admin.id,
-    publishedAt: (status === 'published') ? new Date() : null,
+    cloudinaryPublicId,
+    status:            status   ?? 'draft',
+    createdBy:         req.admin.id,
+    publishedAt:       (status === 'published') ? new Date() : null,
   });
 
   await logActivity({
@@ -173,7 +205,7 @@ export const getNewsById = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN  PUT /api/admin/news/:id
+// ADMIN  PUT /api/admin/news/:id  (supports image replacement)
 // ─────────────────────────────────────────────────────────────────────────────
 export const updateNews = asyncHandler(async (req, res) => {
   const post = await NewsPost.findById(req.params.id);
@@ -189,10 +221,16 @@ export const updateNews = asyncHandler(async (req, res) => {
     }
   }
 
-  // Handle new image upload
+  // Handle new image upload — delete old asset first
   if (req.file) {
-    deleteLocalFile(post.imageUrl);
-    post.imageUrl = `/uploads/news/${req.file.filename}`;
+    if (post.cloudinaryPublicId) {
+      await deleteCloudinaryAsset(post.cloudinaryPublicId);
+    } else if (post.imageUrl) {
+      deleteLocalFile(post.imageUrl);
+    }
+    const resolved         = resolveUploadedFile(req.file);
+    post.imageUrl           = resolved.imageUrl;
+    post.cloudinaryPublicId = resolved.cloudinaryPublicId;
     changes.push('imageUrl');
   }
 
@@ -274,7 +312,6 @@ export const unpublishNews = asyncHandler(async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN  PATCH /api/admin/news/:id/featured
-// Only one post can be featured at a time — atomically unset all others
 // ─────────────────────────────────────────────────────────────────────────────
 export const setFeatured = asyncHandler(async (req, res) => {
   const post = await NewsPost.findById(req.params.id);
@@ -284,11 +321,9 @@ export const setFeatured = asyncHandler(async (req, res) => {
     return sendError(res, { statusCode: 400, message: 'Post is already set as featured.' });
   }
 
-  // Atomically unset all other featured posts
   await NewsPost.updateMany({ isFeatured: true }, { $set: { isFeatured: false } });
 
   post.isFeatured = true;
-  // Auto-publish if still a draft when setting as featured
   if (post.status === 'draft') {
     post.status      = 'published';
     post.publishedAt = new Date();
@@ -311,14 +346,20 @@ export const deleteNews = asyncHandler(async (req, res) => {
   const post = await NewsPost.findById(req.params.id);
   if (!post) throw new AppError('Post not found.', 404);
 
-  deleteLocalFile(post.imageUrl);
+  // Delete from Cloudinary or legacy disk
+  if (post.cloudinaryPublicId) {
+    await deleteCloudinaryAsset(post.cloudinaryPublicId);
+  } else if (post.imageUrl) {
+    deleteLocalFile(post.imageUrl);
+  }
+
   await NewsPost.findByIdAndDelete(req.params.id);
 
   await logActivity({
     admin: req.admin, action: 'delete', module: 'news',
     targetId: post._id.toString(), targetLabel: post.title,
-    detail: `Deleted: "${post.title}"`,
+    detail: `Deleted: "${post.title}" (Cloudinary: ${post.cloudinaryPublicId || 'legacy'})`,
   });
 
-  return sendSuccess(res, { message: `Post "${post.title}" deleted.` });
+  return sendSuccess(res, { message: 'Post deleted.' });
 });
