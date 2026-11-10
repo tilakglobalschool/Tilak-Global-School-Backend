@@ -6,7 +6,7 @@ import bcrypt   from 'bcryptjs';
 
 import AdminUser, { DEFAULT_PERMISSIONS } from '../models/AdminUser.model.js';
 import SiteSettings from '../models/SiteSettings.model.js';
-import FeeRow, { FEE_CLASS_GROUPS } from '../models/FeeRow.model.js';
+import FeeRow from '../models/FeeRow.model.js';
 import Faq from '../models/Faq.model.js';
 import Counter from '../models/Counter.model.js';
 
@@ -84,14 +84,23 @@ async function seedSiteSettings() {
 
 // ── Fee row stubs ──────────────────────────────────────────────────────────────
 async function seedFeeRows() {
-  for (let i = 0; i < FEE_CLASS_GROUPS.length; i++) {
-    await FeeRow.findOneAndUpdate(
-      { classGroup: FEE_CLASS_GROUPS[i] },
-      { $setOnInsert: { classGroup: FEE_CLASS_GROUPS[i], order: i, isActive: true } },
-      { upsert: true, returnDocument: 'after' }
-    );
+  // Only seed if NO rows exist yet — model is now free-form, no hardcoded groups
+  const count = await FeeRow.countDocuments();
+  if (count > 0) {
+    console.log(`ℹ️  FeeRow already has ${count} row(s). Skipping stubs.`);
+    return;
   }
-  console.log(`✅ FeeRow stubs: ${FEE_CLASS_GROUPS.join(', ')}`);
+  // These are placeholder stubs only — admin will update amounts after client confirms
+  const stubs = [
+    { classGroup: 'Nursery–UKG',  order: 0 },
+    { classGroup: 'I–V',          order: 1 },
+    { classGroup: 'VI–VIII',      order: 2 },
+    { classGroup: 'IX–XII',       order: 3 },
+  ];
+  for (const s of stubs) {
+    await FeeRow.create({ ...s, isActive: true });
+  }
+  console.log(`✅ FeeRow stubs created: ${stubs.map(s => s.classGroup).join(', ')}`);
 }
 
 // ── Default FAQs ──────────────────────────────────────────────────────────────
