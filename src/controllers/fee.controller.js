@@ -24,7 +24,7 @@ import { sendSuccess, sendError } from '../utils/response.js';
 // ─────────────────────────────────────────────────────────────────────────────
 export const getPublicFees = asyncHandler(async (req, res) => {
   const fees = await FeeRow.find({ isActive: true })
-    .select('classGroup admissionFee tuitionFeePerTerm otherCharges notes order')
+    .select('classGroup admissionFee tuitionFeePerMonth otherCharges fullSessionTotal notes order')
     .sort({ order: 1 })
     .lean();
 
@@ -64,12 +64,13 @@ export const createFee = asyncHandler(async (req, res) => {
 
   const fee = await FeeRow.create({
     classGroup,
-    admissionFee:      admissionFee      ?? null,
-    tuitionFeePerTerm: tuitionFeePerTerm ?? null,
-    otherCharges:      otherCharges      ?? null,
-    notes:             notes             ?? '',
-    order:             order             ?? 0,
-    isActive:          isActive          ?? true,
+    admissionFee:       admissionFee       ?? null,
+    tuitionFeePerMonth: req.body.tuitionFeePerMonth ?? null,
+    otherCharges:       otherCharges       ?? null,
+    fullSessionTotal:   req.body.fullSessionTotal ?? null,
+    notes:              notes              ?? '',
+    order:              order              ?? 0,
+    isActive:           isActive           ?? true,
     updatedBy: req.admin.id,
   });
 
@@ -96,7 +97,7 @@ export const updateFee = asyncHandler(async (req, res) => {
   const fee = await FeeRow.findById(req.params.id);
   if (!fee) throw new AppError('Fee row not found.', 404);
 
-  const fields  = ['admissionFee', 'tuitionFeePerTerm', 'otherCharges', 'notes', 'order', 'isActive'];
+  const fields  = ['admissionFee', 'tuitionFeePerMonth', 'otherCharges', 'fullSessionTotal', 'notes', 'order', 'isActive'];
   const changes = [];
 
   for (const f of fields) {

@@ -1,13 +1,13 @@
 import { z } from 'zod';
-import { FEE_CLASS_GROUPS } from '../models/FeeRow.model.js';
 
 export const createFeeSchema = z.object({
-  classGroup:         z.enum(FEE_CLASS_GROUPS, { errorMap: () => ({ message: 'Invalid class group' }) }),
-  admissionFee:       z.number().nonnegative().nullable().optional().default(null),
-  tuitionFeePerTerm:  z.number().nonnegative().nullable().optional().default(null),
-  otherCharges:       z.number().nonnegative().nullable().optional().default(null),
+  classGroup:         z.string().trim().min(1).max(100),
+  admissionFee:       z.coerce.number().nonnegative().nullable().optional().default(null),
+  tuitionFeePerMonth: z.coerce.number().nonnegative().nullable().optional().default(null),
+  otherCharges:       z.coerce.number().nonnegative().nullable().optional().default(null),
+  fullSessionTotal:   z.coerce.number().nonnegative().nullable().optional().default(null),
   notes:              z.string().max(500).trim().optional().default(''),
-  order:              z.number().int().optional().default(0),
+  order:              z.coerce.number().int().optional().default(0),
   isActive:           z.boolean().optional().default(true),
 });
 

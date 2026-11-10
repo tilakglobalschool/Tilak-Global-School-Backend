@@ -2,63 +2,76 @@ import mongoose from 'mongoose';
 
 const { Schema, model } = mongoose;
 
-export const FEE_CLASS_GROUPS = ['Nursery–UKG', 'I–V', 'VI–VIII', 'IX–XII'];
-
+/**
+ * FeeRow — one row in the fee structure table.
+ *
+ * classGroup is a free-form string (no enum) so the admin can create rows
+ * matching the actual 8-row fee chart: Play Group–Prep, I–II, III–V, VI–VIII,
+ * IX, X, XI (multiple stream rows), XII, etc. — without schema migrations.
+ *
+ * IMPORTANT: Fee amounts default to null — never invent amounts.
+ * School fills via admin panel after client confirmation.
+ */
 const feeRowSchema = new Schema(
   {
+    // Free-form class label — e.g. "Play Group – Prep", "I – II", "IX", "XI (Science)"
     classGroup: {
-      type: String,
-      enum: {
-        values: FEE_CLASS_GROUPS,
-        message: '{VALUE} is not a valid class group',
-      },
-      required: [true, 'Class group is required'],
-      // unique declared here only — NOT repeated in .index() below
-      unique: true,
+      type:      String,
+      required:  [true, 'Class group label is required'],
+      trim:      true,
+      maxlength: [100, 'Class group label must be 100 characters or less'],
     },
 
     // All fee amounts default to null — school fills via admin panel.
-    // IMPORTANT: Never hardcode or invent fee amounts.
     admissionFee: {
-      type: Number,
+      type:    Number,
       default: null,
-      min: [0, 'Admission fee cannot be negative'],
+      min:     [0, 'Admission fee cannot be negative'],
     },
 
-    tuitionFeePerTerm: {
-      type: Number,
+    // Monthly tuition fee
+    tuitionFeePerMonth: {
+      type:    Number,
       default: null,
-      min: [0, 'Tuition fee cannot be negative'],
+      min:     [0, 'Tuition fee cannot be negative'],
     },
 
+    // Any additional charges (club fee, lab fee, etc.)
     otherCharges: {
-      type: Number,
+      type:    Number,
       default: null,
-      min: [0, 'Other charges cannot be negative'],
+      min:     [0, 'Other charges cannot be negative'],
     },
 
-    // Optional note (e.g. "includes lab fee", "3 terms per year")
+    // Full session total (optional — admin can fill if provided by school)
+    fullSessionTotal: {
+      type:    Number,
+      default: null,
+      min:     [0, 'Full session total cannot be negative'],
+    },
+
+    // Optional note (e.g. "includes lab fee", "per term", stream name for XI/XII)
     notes: {
-      type: String,
-      trim: true,
+      type:      String,
+      trim:      true,
       maxlength: [500, 'Notes must be 500 characters or less'],
-      default: '',
+      default:   '',
     },
 
     // Controls display order in fee table
     order: {
-      type: Number,
+      type:    Number,
       default: 0,
     },
 
     isActive: {
-      type: Boolean,
+      type:    Boolean,
       default: true,
     },
 
     updatedBy: {
-      type: Schema.Types.ObjectId,
-      ref: 'AdminUser',
+      type:    Schema.Types.ObjectId,
+      ref:     'AdminUser',
       default: null,
     },
   },
@@ -68,8 +81,7 @@ const feeRowSchema = new Schema(
   }
 );
 
-// ── Indexes — classGroup unique already declared in field def above ────────────
-// Only secondary non-unique indexes here
+// ── Indexes ───────────────────────────────────────────────────────────────────
 feeRowSchema.index({ isActive: 1, order: 1 });
 
 const FeeRow = model('FeeRow', feeRowSchema);
