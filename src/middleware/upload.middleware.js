@@ -1,38 +1,16 @@
 /**
- * Multer upload middleware — Cloudinary storage
+ * Multer upload middleware — Cloudinary storage with local disk fallback
  *
- * All files are uploaded directly to Cloudinary (no local disk dependency).
- * Render's ephemeral filesystem is not used for permanent storage.
- *
- * Security:
- *   - File type validated by MIME (not extension)
- *   - File size capped by MAX_FILE_SIZE_MB env var
- *   - Client-supplied filenames are ignored (Cloudinary generates public_id)
- *   - API secret never reaches the browser
- *
- * Cloudinary folder structure:
- *   tilak-global-school/gallery      — gallery images
- *   tilak-global-school/news         — news/event featured images
- *   tilak-global-school/documents    — PDF / Word / Excel downloads
- *   tilak-global-school/media        — logo, favicon, director photo
- *   tilak-global-school/videos       — MP4 videos (resource_type: video)
- *
- * Exports:
- *   uploadImage       — gallery images (jpg, png, webp)
- *   uploadDocument    — downloadable files (pdf, doc, docx, xls, xlsx)
- *   uploadMedia       — logo/favicon/director photo (jpg, png, svg, webp)
- *   uploadNewsImage   — news/event featured images (jpg, png, webp)
- *   uploadVideo       — video files (mp4)
- *   handleUploadError — error-handler middleware (place after upload)
- *
- * Backward compatibility:
- *   Existing records with /uploads/* URLs continue to work.
- *   The /uploads static route in app.js still serves legacy files.
+ * When CLOUDINARY_API_KEY is set → uploads go to Cloudinary.
+ * When CLOUDINARY_API_KEY is missing → falls back to local /uploads/media/ folder.
+ * This allows local development without Cloudinary credentials.
  */
 import multer                      from 'multer';
 import { CloudinaryStorage }       from 'multer-storage-cloudinary';
 import cloudinary                  from '../config/cloudinary.js';
-import { MAX_FILE_SIZE_MB }        from '../config/env.js';
+import { MAX_FILE_SIZE_MB, CLOUDINARY_API_KEY, UPLOAD_DIR } from '../config/env.js';
+import path                        from 'path';
+import fs                          from 'fs';
 
 // ── MIME type allowlists ─────────────────────────────────────────────────────
 const IMAGE_MIMES    = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -62,71 +40,107 @@ function makeFilter(allowedMimes) {
 
 const maxSize = (MAX_FILE_SIZE_MB || 10) * 1024 * 1024;
 
-// ── CloudinaryStorage factory ─────────────────────────────────────────────────
-/**
- * @param {string} folder      — Cloudinary folder path
- * @param {string} resourceType — 'image' | 'raw' | 'video'
- * @param {string[]} [formats] — allowed formats (optional, Cloudinary default = all)
- */
-function makeCloudinaryStorage(folder, resourceType = 'image', formats) {
-  return new CloudinaryStorage({
-    cloudinary,
-    params: (req, file) => {
-      const params = {
-        folder,
-        resource_type: resourceType,
-        // Use original filename base (sanitised) for readability; Cloudinary appends version
-        public_id: undefined, // let Cloudinary auto-generate
-        // For images: preserve quality, strip metadata
-        ...(resourceType === 'image' && {
-          quality:          'auto:good',
-          fetch_format:     'auto',
-          flags:            'strip_profile',
-        }),
-      };
-      if (formats && formats.length) {
-        params.format = formats;
-      }
-      return params;
+// ── Check if Cloudinary is configured ────────────────────────────────────────
+const cloudinaryEnabled = !!(CLOUDINARY_API_KEY && CLOUDINARY_API_KEY.trim());
+
+// ── Local disk storage factory (fallback when Cloudinary not configured) ─────
+function makeLocalStorage(subFolder) {
+  const dir = path.join(UPLOAD_DIR, subFolder);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  return multer.diskStorage({
+    destination: (req, file, cb) => cb(null, dir),
+    destination_path: dir,
+    filename: (req, file, cb) => {
+      const ext  = path.extname(file.originalname) || '.jpg';
+      const name = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+      cb(null, name);
     },
   });
+}
+
+// When using local disk, patch req.file so controller sees .path and .filename
+// matching the same interface as multer-storage-cloudinary.
+function patchLocalFile(subFolder) {
+  return (req, res, next) => {
+    if (req.file && req.file.path && req.file.path.includes(UPLOAD_DIR)) {
+      // Convert absolute path → relative URL  /uploads/<subFolder>/<filename>
+      req.file.path     = `/uploads/${subFolder}/${req.file.filename}`;
+      // filename acts as publicId for local files
+    }
+    next();
+  };
+}
+
+// ── CloudinaryStorage factory ─────────────────────────────────────────────────
+function makeCloudinaryStorage(folder, resourceType = 'image') {
+  return new CloudinaryStorage({
+    cloudinary,
+    params: (req, file) => ({
+      folder,
+      resource_type: resourceType,
+      public_id:     undefined,
+      ...(resourceType === 'image' && {
+        quality:      'auto:good',
+        fetch_format: 'auto',
+        flags:        'strip_profile',
+      }),
+    }),
+  });
+}
+
+// ── Storage selector ──────────────────────────────────────────────────────────
+function makeStorage(cloudinaryFolder, localSubFolder, resourceType = 'image') {
+  if (cloudinaryEnabled) {
+    return makeCloudinaryStorage(cloudinaryFolder, resourceType);
+  }
+  return makeLocalStorage(localSubFolder);
 }
 
 // ── Upload handlers ───────────────────────────────────────────────────────────
 
 export const uploadImage = multer({
-  storage:    makeCloudinaryStorage('tilak-global-school/gallery', 'image'),
+  storage:    makeStorage('tilak-global-school/gallery', 'gallery'),
   fileFilter: makeFilter(IMAGE_MIMES),
   limits:     { fileSize: maxSize },
 }).single('image');
 
 export const uploadNewsImage = multer({
-  storage:    makeCloudinaryStorage('tilak-global-school/news', 'image'),
+  storage:    makeStorage('tilak-global-school/news', 'news'),
   fileFilter: makeFilter(IMAGE_MIMES),
   limits:     { fileSize: maxSize },
 }).single('image');
 
 export const uploadDocument = multer({
-  storage:    makeCloudinaryStorage('tilak-global-school/documents', 'raw'),
+  storage:    cloudinaryEnabled
+    ? makeCloudinaryStorage('tilak-global-school/documents', 'raw')
+    : makeLocalStorage('documents'),
   fileFilter: makeFilter(DOCUMENT_MIMES),
   limits:     { fileSize: maxSize },
 }).single('file');
 
 export const uploadMedia = multer({
-  storage:    makeCloudinaryStorage('tilak-global-school/media', 'image'),
+  storage:    makeStorage('tilak-global-school/media', 'media'),
   fileFilter: makeFilter(MEDIA_MIMES),
   limits:     { fileSize: maxSize },
 }).single('media');
 
 export const uploadVideo = multer({
-  storage:    makeCloudinaryStorage('tilak-global-school/videos', 'video'),
+  storage:    cloudinaryEnabled
+    ? makeCloudinaryStorage('tilak-global-school/videos', 'video')
+    : makeLocalStorage('videos'),
   fileFilter: makeFilter(VIDEO_MIMES),
-  limits:     { fileSize: 100 * 1024 * 1024 }, // 100 MB for videos
+  limits:     { fileSize: 100 * 1024 * 1024 },
 }).single('video');
+
+// Patch middleware for local storage (noop when Cloudinary is active)
+export const patchMediaFile    = cloudinaryEnabled ? (req, res, next) => next() : patchLocalFile('media');
+export const patchGalleryFile  = cloudinaryEnabled ? (req, res, next) => next() : patchLocalFile('gallery');
+export const patchNewsFile     = cloudinaryEnabled ? (req, res, next) => next() : patchLocalFile('news');
+export const patchDocumentFile = cloudinaryEnabled ? (req, res, next) => next() : patchLocalFile('documents');
 
 /**
  * Error handler — place immediately after any upload middleware.
- * Converts MulterError → clean JSON 400 response.
  */
 export function handleUploadError(err, req, res, next) {
   if (err instanceof multer.MulterError) {

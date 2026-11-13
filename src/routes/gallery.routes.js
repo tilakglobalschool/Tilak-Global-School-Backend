@@ -22,7 +22,7 @@ import {
 import { authenticate }        from '../middleware/auth.middleware.js';
 import { requirePermission }   from '../middleware/role.middleware.js';
 import { validate }            from '../middleware/validate.middleware.js';
-import { uploadImage, handleUploadError } from '../middleware/upload.middleware.js';
+import { uploadImage, patchGalleryFile, handleUploadError } from '../middleware/upload.middleware.js';
 import { createGallerySchema, updateGallerySchema, galleryQuerySchema } from '../validators/gallery.validators.js';
 
 // ── Public router ─────────────────────────────────────────────────────────────
@@ -48,6 +48,7 @@ adminGalleryRouter.post('/',
   requirePermission('gallery', 'edit'),
   uploadImage,
   handleUploadError,
+  patchGalleryFile,
   validate(createGallerySchema),
   uploadGallery
 );
@@ -61,6 +62,7 @@ adminGalleryRouter.put('/:id',
   requirePermission('gallery', 'edit'),
   uploadImage,
   handleUploadError,
+  patchGalleryFile,
   validate(updateGallerySchema),
   updateGallery
 );

@@ -23,7 +23,7 @@ import {
 import { authenticate }        from '../middleware/auth.middleware.js';
 import { requirePermission }   from '../middleware/role.middleware.js';
 import { validate }            from '../middleware/validate.middleware.js';
-import { uploadDocument as uploadDocMiddleware, handleUploadError } from '../middleware/upload.middleware.js';
+import { uploadDocument as uploadDocMiddleware, patchDocumentFile, handleUploadError } from '../middleware/upload.middleware.js';
 import { createDocumentSchema, updateDocumentSchema, documentQuerySchema } from '../validators/document.validators.js';
 
 // ── Public router ─────────────────────────────────────────────────────────────
@@ -49,6 +49,7 @@ adminDocumentRouter.post('/',
   requirePermission('documents', 'edit'),
   uploadDocMiddleware,
   handleUploadError,
+  patchDocumentFile,
   validate(createDocumentSchema),
   uploadDocument
 );
@@ -62,6 +63,7 @@ adminDocumentRouter.put('/:id',
   requirePermission('documents', 'edit'),
   uploadDocMiddleware,
   handleUploadError,
+  patchDocumentFile,
   validate(updateDocumentSchema),
   updateDocument
 );

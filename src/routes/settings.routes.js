@@ -22,7 +22,7 @@ import {
 import { authenticate }      from '../middleware/auth.middleware.js';
 import { requirePermission } from '../middleware/role.middleware.js';
 import { validate }          from '../middleware/validate.middleware.js';
-import { uploadMedia, handleUploadError } from '../middleware/upload.middleware.js';
+import { uploadMedia, patchMediaFile, handleUploadError } from '../middleware/upload.middleware.js';
 import { updateSettingsSchema } from '../validators/settings.validators.js';
 
 // ── Public router ─────────────────────────────────────────────────────────────
@@ -49,6 +49,7 @@ adminSettingsRouter.post('/logo',
   requirePermission('settings', 'edit'),
   uploadMedia,
   handleUploadError,
+  patchMediaFile,
   uploadLogo
 );
 
@@ -56,6 +57,7 @@ adminSettingsRouter.post('/favicon',
   requirePermission('settings', 'edit'),
   uploadMedia,
   handleUploadError,
+  patchMediaFile,
   uploadFavicon
 );
 
@@ -63,5 +65,6 @@ adminSettingsRouter.post('/director-photo',
   requirePermission('settings', 'edit'),
   uploadMedia,
   handleUploadError,
+  patchMediaFile,
   uploadDirectorPhoto
 );

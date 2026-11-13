@@ -26,7 +26,7 @@ import {
 import { authenticate }        from '../middleware/auth.middleware.js';
 import { requirePermission }   from '../middleware/role.middleware.js';
 import { validate }            from '../middleware/validate.middleware.js';
-import { uploadNewsImage, handleUploadError } from '../middleware/upload.middleware.js';
+import { uploadNewsImage, patchNewsFile, handleUploadError } from '../middleware/upload.middleware.js';
 import { createNewsSchema, updateNewsSchema, newsQuerySchema } from '../validators/news.validators.js';
 
 // ── Public router ─────────────────────────────────────────────────────────────
@@ -52,6 +52,7 @@ adminNewsRouter.post('/',
   requirePermission('news', 'edit'),
   uploadNewsImage,
   handleUploadError,
+  patchNewsFile,
   validate(createNewsSchema),
   createNews
 );
@@ -65,6 +66,7 @@ adminNewsRouter.put('/:id',
   requirePermission('news', 'edit'),
   uploadNewsImage,
   handleUploadError,
+  patchNewsFile,
   validate(updateNewsSchema),
   updateNews
 );
