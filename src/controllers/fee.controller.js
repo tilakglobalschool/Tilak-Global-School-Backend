@@ -97,7 +97,7 @@ export const updateFee = asyncHandler(async (req, res) => {
   const fee = await FeeRow.findById(req.params.id);
   if (!fee) throw new AppError('Fee row not found.', 404);
 
-  const fields  = ['admissionFee', 'tuitionFeePerMonth', 'otherCharges', 'fullSessionTotal', 'notes', 'order', 'isActive'];
+  const fields  = ['classGroup', 'admissionFee', 'tuitionFeePerMonth', 'otherCharges', 'fullSessionTotal', 'notes', 'order', 'isActive'];
   const changes = [];
 
   for (const f of fields) {
