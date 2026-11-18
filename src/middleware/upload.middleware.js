@@ -21,7 +21,14 @@ const DOCUMENT_MIMES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ];
-const MEDIA_MIMES  = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
+const MEDIA_MIMES  = [
+  'image/jpeg',
+  'image/png',
+  'image/svg+xml',
+  'image/webp',
+  'image/x-icon',              // .ico — standard favicon
+  'image/vnd.microsoft.icon',  // .ico — alternate MIME sent by some browsers/OS
+];
 const VIDEO_MIMES  = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 
 // ── MIME filter factory ───────────────────────────────────────────────────────
@@ -76,16 +83,19 @@ function patchLocalFile(subFolder) {
 function makeCloudinaryStorage(folder, resourceType = 'image') {
   return new CloudinaryStorage({
     cloudinary,
-    params: (req, file) => ({
-      folder,
-      resource_type: resourceType,
-      public_id:     undefined,
-      ...(resourceType === 'image' && {
-        quality:      'auto:good',
-        fetch_format: 'auto',
-        flags:        'strip_profile',
-      }),
-    }),
+    params: (req, file) => {
+      const isIco = file.mimetype === 'image/x-icon' || file.mimetype === 'image/vnd.microsoft.icon';
+      return {
+        folder,
+        resource_type: resourceType,
+        public_id:     undefined,
+        ...(resourceType === 'image' && !isIco && {
+          quality:      'auto:good',
+          fetch_format: 'auto',
+          flags:        'strip_profile',
+        }),
+      };
+    },
   });
 }
 
