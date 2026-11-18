@@ -1,4 +1,4 @@
-/**
+﻿/**
  * seedClientContent.js — Tilak Global School
  *
  * Complete idempotent migration script.
@@ -136,8 +136,8 @@ async function seedSettings() {
       officeTimings:       '8:00 AM to 2:00 PM (Monday to Saturday)',
       whatsappNumber:      '9119112335',
       whatsappMessage:     'Hello, I would like to enquire about admission to Tilak Global School.',
-      admissionSession:    '2026-27',
-      admissionBannerText: 'Admissions Open for Session 2026-27',
+      admissionSession:    '2027-28',
+      admissionBannerText: 'Admissions Open for Session 2027-28',
       admissionsOpen:      true,
       // Director info kept at existing value (CF-01 unresolved)
       directorDesignation: 'Director',
@@ -189,7 +189,7 @@ const GALLERY_MANIFEST = [
     filename: 'school_main_gate_with_admission_open_banner.webp',
     publicId:  'tilak-global-school/campus/school-main-gate',
     caption:   'School Main Gate',
-    altText:   'Tilak Global School main gate with Admissions Open 2026-27 banner',
+    altText:   'Tilak Global School main gate with Admissions Open 2027-28 banner',
     category:  'Campus', albumName: 'School Building', order: 2, status: 'published',
   },
   {
@@ -1235,10 +1235,10 @@ async function seedFaqs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION 4: FEE ROWS — confirmed amounts from fee chart 2026-27
+// SECTION 4: FEE ROWS — confirmed amounts from fee chart 2027-28
 // ─────────────────────────────────────────────────────────────────────────────
 async function seedFees() {
-  sep('4. FEE STRUCTURE 2026-27');
+  sep('4. FEE STRUCTURE 2027-28');
   warn('CF-04: Class XI totals are conflicting — skipping Class XI.');
   warn('CF-05: Bus per-km rate is conflicting — not seeded.');
 
@@ -1274,11 +1274,11 @@ async function seedContent() {
     // Home
     { key: 'home.hero.title',    value: 'Welcome to Tilak Global School' },
     { key: 'home.hero.subtitle', value: 'A CBSE Affiliated English-Medium School in Jaipur — Nursery to Class XII. Nurturing Curious Minds, Building Future Leaders.' },
-    { key: 'home.hero.badge',    value: 'Admissions Open · Session 2026-27' },
+    { key: 'home.hero.badge',    value: 'Admissions Open · Session 2027-28' },
     { key: 'home.welcome.title', value: 'Welcome to Tilak Global School' },
     { key: 'home.welcome.body',  value: "Welcome to Tilak Global School, where every child's potential is nurtured with care, creativity, and commitment. Situated in Jaipur, our school is a CBSE-affiliated institution dedicated to providing quality education from Play Group to Class XII.\n\nAt Tilak Global School, we believe education is not just about academics — it's about building well-rounded individuals. Our experienced faculty, modern infrastructure, and holistic approach ensure that every student thrives — academically, socially, and emotionally." },
     { key: 'home.cta.title',     value: 'Give your child the best start.' },
-    { key: 'home.cta.subtitle',  value: 'Admissions open for session 2026-27. Limited seats available. Contact us today.' },
+    { key: 'home.cta.subtitle',  value: 'Admissions open for session 2027-28. Limited seats available. Contact us today.' },
     // About
     { key: 'about.intro.body',   value: "Tilak Global School is an English-medium, co-educational CBSE school offering classes from Play Group to Class XII, situated in Bindayaka (Bhutawali), Mukundpura Road, Jaipur.\n\nFollowing the NCERT/CBSE syllabus, the school takes a holistic and constructivist approach, offering equal educational and developmental opportunities in a stress-free, nurturing environment." },
     { key: 'about.vision.text',  value: 'To be a centre of excellence that empowers students with knowledge, values, and skills to become responsible global citizens.' },

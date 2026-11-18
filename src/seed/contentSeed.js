@@ -1,4 +1,4 @@
-// dotenv MUST be first
+﻿// dotenv MUST be first
 import 'dotenv/config';
 
 import mongoose from 'mongoose';

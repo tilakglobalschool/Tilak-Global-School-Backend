@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 5 Seed — Populate confirmed client content
  *
  * This script:
@@ -53,7 +53,7 @@ const CMS_UPDATES = [
   },
   {
     key:   'home.hero.badge',
-    value: 'Admissions Open · Session 2026-27',
+    value: 'Admissions Open · Session 2027-28',
   },
   {
     key:   'home.welcome.title',
@@ -69,7 +69,7 @@ const CMS_UPDATES = [
   },
   {
     key:   'home.cta.subtitle',
-    value: 'Admissions open for session 2026-27. Limited seats available. Contact us today.',
+    value: 'Admissions open for session 2027-28. Limited seats available. Contact us today.',
   },
 
   // ── About ──────────────────────────────────────────────────────────────────
@@ -202,8 +202,8 @@ async function updateSiteSettings() {
     officeTimings:       '8:00 AM to 2:00 PM (Monday to Saturday)',
     whatsappNumber:      '9119112335',
     whatsappMessage:     'Hello, I would like to enquire about admission to Tilak Global School.',
-    admissionSession:    '2026-27',
-    admissionBannerText: 'Admissions Open for Session 2026-27',
+    admissionSession:    '2027-28',
+    admissionBannerText: 'Admissions Open for Session 2027-28',
     admissionsOpen:      true,
     // Director name: CF-01 unresolved — keeping default
     // mapEmbedUrl: CF-11 unresolved — keeping blank
@@ -272,7 +272,7 @@ async function upsertFaqs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. FEE ROWS — confirmed amounts from fee chart 2026-27
+// 4. FEE ROWS — confirmed amounts from fee chart 2027-28
 //    CF-04 (Class XI conflict) and CF-05 (bus rate) NOT seeded.
 // ─────────────────────────────────────────────────────────────────────────────
 const FEE_ROWS = [
