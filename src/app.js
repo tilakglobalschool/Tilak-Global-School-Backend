@@ -26,6 +26,7 @@ import { publicDocumentRouter,    adminDocumentRouter    } from './routes/docume
 import { publicFeeRouter,         adminFeeRouter         } from './routes/fee.routes.js';
 import { publicFaqRouter,         adminFaqRouter         } from './routes/faq.routes.js';
 import { publicSettingsRouter,    adminSettingsRouter    } from './routes/settings.routes.js';
+import { publicSectionImagesRouter, adminImageAssignmentRouter } from './routes/imageAssignment.routes.js';
 import { publicContactRouter,     adminContactRouter     } from './routes/contact.routes.js';
 
 import { notFound }          from './middleware/notFound.js';
@@ -113,8 +114,9 @@ app.use('/api/documents',    publicDocumentRouter);
 app.use('/api/fees',         publicFeeRouter);
 app.use('/api/faqs',         publicFaqRouter);
 app.use('/api/settings',     publicSettingsRouter);
-app.use('/api/contact',      publicContactRouter);
-app.use('/api/applications', publicApplicationRouter);
+app.use('/api/contact',           publicContactRouter);
+app.use('/api/applications',      publicApplicationRouter);
+app.use('/api/section-images',    publicSectionImagesRouter);
 
 // Admin (auth enforced inside each router)
 app.use('/api/admin/users',        userRouter);
@@ -126,8 +128,9 @@ app.use('/api/admin/news',         adminNewsRouter);
 app.use('/api/admin/documents',    adminDocumentRouter);
 app.use('/api/admin/fees',         adminFeeRouter);
 app.use('/api/admin/faqs',         adminFaqRouter);
-app.use('/api/admin/settings',     adminSettingsRouter);
-app.use('/api/admin/contact',      adminContactRouter);
+app.use('/api/admin/settings',          adminSettingsRouter);
+app.use('/api/admin/contact',           adminContactRouter);
+app.use('/api/admin/image-assignments', adminImageAssignmentRouter);
 
 // ── 404 + global error handler (must be last) ─────────────────────────────────
 app.use(notFound);
